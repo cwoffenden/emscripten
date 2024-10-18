@@ -44,6 +44,7 @@ function createWasmAudioWorkletProcessor(audioParams) {
     }
 
     process(inputList, outputList, parameters) {
+      var time = Date.now();
       // Marshal all inputs and parameters to the Wasm memory on the thread stack,
       // then perform the wasm audio worklet call,
       // and finally marshal audio output data back.
@@ -125,6 +126,9 @@ function createWasmAudioWorkletProcessor(audioParams) {
       }
 
       stackRestore(oldStackPtr);
+      
+      time = Date.now() - time;
+      console.log(time);
 
       // Return 'true' to tell the browser to continue running this processor.
       // (Returning 1 or any other truthy value won't work in Chrome)
