@@ -121,6 +121,21 @@ typedef struct AudioParamFrame
 	float *data;
 } AudioParamFrame;
 
+// Global attributes of the audio context
+typedef struct AudioContextAttrs
+{
+  // (See 1.1 spec docs over Moz docs)
+  const float baseLatency;
+  // (See 1.1 spec docs over Moz docs)
+  const float outputLatency;
+  // Number of samples per second, valid for all audio frames
+  const int sampleRate;
+  // Number of samples processed per channel in an AudioSampleFrame (fixed at 128 in the Web Audio API 1.0 specification, user definable in 1.1)
+  const int renderQuantumSize;
+} AudioContextParams;
+
+typedef bool (*EmscriptenWorkletNodeProcessCallbackLegacy)(int numInputs, const AudioSampleFrame *inputs, int numOutputs, AudioSampleFrame *outputs, int numParams, const AudioParamFrame *params, void *userData4);
+
 typedef bool (*EmscriptenWorkletNodeProcessCallback)(int numInputs, const AudioSampleFrame *inputs, int numOutputs, AudioSampleFrame *outputs, int numParams, const AudioParamFrame *params, void *userData4);
 
 typedef struct EmscriptenAudioWorkletNodeCreateOptions
@@ -135,7 +150,7 @@ typedef struct EmscriptenAudioWorkletNodeCreateOptions
 
 // Instantiates the given AudioWorkletProcessor as an AudioWorkletNode, which continuously calls the specified processCallback() function on the browser's audio thread to perform audio processing.
 // userData4: A custom userdata pointer to pass to the callback function. This value will be passed on to the call to the given EmscriptenWorkletNodeProcessCallback callback function.
-EMSCRIPTEN_AUDIO_WORKLET_NODE_T emscripten_create_wasm_audio_worklet_node(EMSCRIPTEN_WEBAUDIO_T audioContext, const char *name, const EmscriptenAudioWorkletNodeCreateOptions *options, EmscriptenWorkletNodeProcessCallback processCallback, void *userData4);
+EMSCRIPTEN_AUDIO_WORKLET_NODE_T emscripten_create_wasm_audio_worklet_node(EMSCRIPTEN_WEBAUDIO_T audioContext, const char *name, const EmscriptenAudioWorkletNodeCreateOptions *options, EmscriptenWorkletNodeProcessCallbackLegacy processCallback, void *userData4);
 
 // Connects a node's output to a target, e.g., connect the worklet node to the context.
 // For outputIndex and inputIndex, see the AudioNode.connect() documentation (setting 0 as the default values)
