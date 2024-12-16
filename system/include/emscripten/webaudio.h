@@ -106,6 +106,7 @@ typedef struct AudioSampleFrame
 	// Number of audio channels to process (multiplied by samplesPerChannel gives the elements in data)
 	const int numberOfChannels;
 	// Number of samples per channel in data
+	__attribute__((deprecated("Number of samples is now AudioContextAttrs::renderQuantumSize")))
 	const int samplesPerChannel;
 	// An array of length numberOfChannels*samplesPerChannel elements. Samples are always arranged in a planar fashion,
 	// where data[channelIndex*samplesPerChannel+i] locates the data of the i'th sample of channel channelIndex.
@@ -150,6 +151,7 @@ typedef struct EmscriptenAudioWorkletNodeCreateOptions
 
 // Instantiates the given AudioWorkletProcessor as an AudioWorkletNode, which continuously calls the specified processCallback() function on the browser's audio thread to perform audio processing.
 // userData4: A custom userdata pointer to pass to the callback function. This value will be passed on to the call to the given EmscriptenWorkletNodeProcessCallback callback function.
+__attribute__((deprecated("Use EmscriptenWorkletNodeProcessCallback")))
 EMSCRIPTEN_AUDIO_WORKLET_NODE_T emscripten_create_wasm_audio_worklet_node(EMSCRIPTEN_WEBAUDIO_T audioContext, const char *name, const EmscriptenAudioWorkletNodeCreateOptions *options, EmscriptenWorkletNodeProcessCallbackLegacy processCallback, void *userData4);
 
 // Connects a node's output to a target, e.g., connect the worklet node to the context.
