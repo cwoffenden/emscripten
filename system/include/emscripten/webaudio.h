@@ -133,11 +133,11 @@ typedef struct AudioContextAttrs
   const int sampleRate;
   // Number of samples processed per channel in an AudioSampleFrame (fixed at 128 in the Web Audio API 1.0 specification, user definable in 1.1)
   const int renderQuantumSize;
-} AudioContextParams;
+} AudioContextAttrs;
 
 typedef bool (*EmscriptenWorkletNodeProcessCallbackLegacy)(int numInputs, const AudioSampleFrame *inputs, int numOutputs, AudioSampleFrame *outputs, int numParams, const AudioParamFrame *params, void *userData4);
 
-typedef bool (*EmscriptenWorkletNodeProcessCallback)(int numInputs, const AudioSampleFrame *inputs, int numOutputs, AudioSampleFrame *outputs, int numParams, const AudioParamFrame *params, void *userData4);
+typedef bool (*EmscriptenWorkletNodeProcessCallback)(int numInputs, const AudioSampleFrame *inputs, int numOutputs, AudioSampleFrame *outputs, int numParams, const AudioParamFrame *params, AudioContextAttrs *ctxAttrs, void *userData4);
 
 typedef struct EmscriptenAudioWorkletNodeCreateOptions
 {
