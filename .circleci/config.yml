@@ -425,8 +425,8 @@ jobs:
       - checkout
       - pip-install
       - run: ruff check
-      # TODO (cclauss): When ruff supports rule E303 without --preview, remove following line
-      - run: ruff check --preview --select=E303
+      # TODO (cclauss): When ruff supports rules E20,E30 without --preview, remove following line
+      - run: ruff check --preview --select=E20,E30
   mypy:
     executor: focal
     steps:
@@ -566,6 +566,7 @@ jobs:
             core2ss.test_pthread_thread_local_storage
             core2s.test_dylink_syslibs_missing_assertions
             core2s.test_module_wasm_memory
+            cores.test_minimal_runtime_safe_heap
             wasm2js3.test_memorygrowth_2
             wasmfs.test_hello_world
             wasmfs.test_unistd_links*
@@ -642,7 +643,7 @@ jobs:
       # version of node (node canary) when running the compiler output (e.g.
       # in configure tests.
       - run:
-          name: configure node canary
+          name: configure compiler to use node-canary
           command: echo "NODE_JS = NODE_JS_TEST" >> ~/emsdk/.emscripten
       - run-tests:
           title: "wasm64"
@@ -746,6 +747,18 @@ jobs:
           command: git submodule update --init
       - pip-install
       - install-emsdk
+      # `install-node-version` only changes the NODE_JS_TEST (the version of
+      # node used to run test), not NODE_JS (the version of node used to run the
+      # compiler itself).
+      # In order to test that the compiler itself can run under the oldest
+      # supported version of node, we run all the tests in the runner under that
+      # version.
+      # Keep this in sync with MINIMUM_NODE_VERSION in tools/shared.py.
+      - install-node-version:
+          node_version: "18.0.0"
+      - run:
+          name: configure compiler to use 18.0.0
+          command: echo "NODE_JS = '$(which node)'" >> ~/emsdk/.emscripten
       - install-node-canary
       - run-tests:
           title: "node (canary)"
@@ -760,7 +773,8 @@ jobs:
             core0.test_async_ccall_promise_exit_runtime_jspi
             core0.test_cubescript_jspi"
       # Run some basic tests with the minimum version of node that we currently
-      # support.
+      # support in the generated code.
+      # Keep this in sync with `OLDEST_SUPPORTED_NODE` in `feature_matrix.py`
       - install-node-version:
           node_version: "10.19.0"
       - run-tests:
@@ -845,7 +859,7 @@ jobs:
             core2.test_i64_invoke_bigint
             core2.test_sse2
             core2.test_source_map
-            core2.test_exceptions_wasm
+            core2.test_exceptions_wasm_legacy
             core2.test_pthread_unhandledrejection"
       - upload-test-results
   test-other:

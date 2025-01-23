@@ -1,12 +1,22 @@
 import globals from 'globals';
 import js from '@eslint/js';
 import { FlatCompat } from '@eslint/eslintrc';
+import { loadDefaultSettings } from './src/utility.mjs';
 
 const compat = new FlatCompat({
   baseDirectory: import.meta.dirname,
   recommendedConfig: js.configs.recommended,
   allConfig: js.configs.all
 });
+
+
+// Emscripten settings are made available to the compiler as global
+// variables.  Make sure eslint knows about them.
+const settings = loadDefaultSettings();
+const settingsGlobals = {};
+for (const name of Object.keys(settings)) {
+  settingsGlobals[name] = 'writable';
+}
 
 export default [{
   ignores: [
@@ -16,7 +26,7 @@ export default [{
     '**/third_party/',
     '**/test/',
     'src/polyfill/',
-    'src/library*.js',
+    'src/lib/',
     'src/runtime_*.js',
     'src/shell*.js',
     'src/preamble*.js',
@@ -42,6 +52,8 @@ export default [{
     'src/Fetch.js',
     'src/settings.js',
     'src/settings_internal.js',
+    'src/growableHeap.js',
+    'src/emrun_prejs.js',
     'src/arrayUtils.js',
     'src/deterministic.js',
     'src/base64Decode.js',
@@ -51,14 +63,15 @@ export default [{
     'src/URIUtils.js',
     'tools/experimental',
   ],
-}, ...compat.extends('prettier'), {
+}, ...compat.extends('prettier'), js.configs.recommended, {
   languageOptions: {
     globals: {
       ...globals.browser,
       ...globals.node,
+      ...settingsGlobals,
     },
 
-    ecmaVersion: 13,
+    ecmaVersion: 'latest',
     sourceType: 'module',
   },
 
@@ -68,6 +81,7 @@ export default [{
     'require-jsdoc': 'off',
     'arrow-body-style': ['error', 'as-needed'],
     'space-infix-ops': 'error',
+    'no-prototype-builtins': 'off',
 
     quotes: ['error', 'single', {
       avoidEscape: true,
@@ -77,6 +91,7 @@ export default [{
   files: ['**/*.mjs'],
 
   rules: {
+    'no-undef': 'error',
     'no-unused-vars': ['error', {
       vars: 'all',
       args: 'none',
