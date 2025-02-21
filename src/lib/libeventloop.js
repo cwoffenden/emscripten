@@ -189,9 +189,9 @@ LibraryJSEventLoop = {
   $MainLoop__internal: true,
   $MainLoop__deps: ['$setMainLoop', '$callUserCallback', 'emscripten_set_main_loop_timing'],
   $MainLoop__postset: `
-    Module["requestAnimationFrame"] = MainLoop.requestAnimationFrame;
-    Module["pauseMainLoop"] = MainLoop.pause;
-    Module["resumeMainLoop"] = MainLoop.resume;
+    Module['requestAnimationFrame'] = MainLoop.requestAnimationFrame;
+    Module['pauseMainLoop'] = MainLoop.pause;
+    Module['resumeMainLoop'] = MainLoop.resume;
     MainLoop.init();`,
   $MainLoop: {
     running: false,
@@ -489,7 +489,7 @@ LibraryJSEventLoop = {
     }
 
     if (!noSetTiming) {
-      if (fps && fps > 0) {
+      if (fps > 0) {
         _emscripten_set_main_loop_timing({{{ cDefs.EM_TIMING_SETTIMEOUT }}}, 1000.0 / fps);
       } else {
         // Do rAF by rendering each frame (no decimating)

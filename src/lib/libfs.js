@@ -33,17 +33,14 @@ addToLibrary({
   ],
   $FS__postset: () => {
     // TODO: do we need noFSInit?
-    addAtInit(`
-if (!Module['noFSInit'] && !FS.initialized)
-  FS.init();
-FS.ignorePermissions = false;
-`)
+    addAtInit(`if (!Module['noFSInit'] && !FS.initialized) FS.init();`);
+    addAtPostCtor('FS.ignorePermissions = false;');
     addAtExit('FS.quit();');
     return `
 FS.createPreloadedFile = FS_createPreloadedFile;
 FS.staticInit();
 // Set module methods based on EXPORTED_RUNTIME_METHODS
-{{{ EXPORTED_RUNTIME_METHODS.filter((func) => func.startsWith('FS_')).map((func) => 'Module["' + func + '"] = FS.' + func.substr(3) + ";\n").reduce((str, func) => str + func, '') }}}`;
+{{{ EXPORTED_RUNTIME_METHODS.filter((func) => func.startsWith('FS_')).map((func) => "Module['" + func + "'] = FS." + func.slice(3) + ";\n").reduce((str, func) => str + func, '') }}}`;
   },
   $FS: {
     root: null,
@@ -1629,7 +1626,7 @@ FS.staticInit();
         try {
           FS.mkdir(current);
         } catch (e) {
-          // ignore EEXIST
+          if (e.errno != {{{ cDefs.EEXIST }}}) throw e;
         }
         parent = current;
       }

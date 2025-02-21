@@ -12,52 +12,37 @@ var LibraryStackTrace = {
   $getCallstack: (flags) => {
     var callstack = jsStackTrace();
 
-    // Find the symbols in the callstack that corresponds to the functions that
-    // report callstack information, and remove everything up to these from the
-    // output.
-    var iThisFunc = callstack.lastIndexOf('_emscripten_log');
-    var iThisFunc2 = callstack.lastIndexOf('_emscripten_get_callstack');
-    var iNextLine = callstack.indexOf('\n', Math.max(iThisFunc, iThisFunc2))+1;
-    callstack = callstack.slice(iNextLine);
-
-    // If user requested to see the original source stack, but no source map
-    // information is available, just fall back to showing the JS stack.
-    if (flags & {{{ cDefs.EM_LOG_C_STACK }}} && typeof emscripten_source_map == 'undefined') {
-      warnOnce('Source map information is not available, emscripten_log with EM_LOG_C_STACK will be ignored. Build with "--pre-js $EMSCRIPTEN/src/emscripten-source-map.min.js" linker flag to add source map loading to code.');
-      flags ^= {{{ cDefs.EM_LOG_C_STACK }}};
-      flags |= {{{ cDefs.EM_LOG_JS_STACK }}};
+#if ASSERTIONS
+    if (flags & {{{ cDefs.EM_LOG_C_STACK }}}) {
+      warnOnce('emscripten_log with EM_LOG_C_STACK no longer has any effect');
     }
+#endif
 
     // Process all lines:
     var lines = callstack.split('\n');
     callstack = '';
-    // New FF30 with column info: extract components of form:
+    // Extract components of form:
     // '       Object._main@http://server.com:4324:12'
-    var newFirefoxRe = new RegExp('\\s*(.*?)@(.*?):([0-9]+):([0-9]+)');
-    // Old FF without column info: extract components of form:
-    // '       Object._main@http://server.com:4324'
-    var firefoxRe = new RegExp('\\s*(.*?)@(.*):(.*)(:(.*))?');
+    var firefoxRe = new RegExp('\\s*(.*?)@(.*?):([0-9]+):([0-9]+)');
     // Extract components of form:
     // '    at Object._main (http://server.com/file.html:4324:12)'
     var chromeRe = new RegExp('\\s*at (.*?) \\\((.*):(.*):(.*)\\\)');
 
-    for (var l in lines) {
-      var line = lines[l];
-
+    for (var line of lines) {
       var symbolName = '';
       var file = '';
       var lineno = 0;
       var column = 0;
 
       var parts = chromeRe.exec(line);
-      if (parts && parts.length == 5) {
+      if (parts?.length == 5) {
         symbolName = parts[1];
         file = parts[2];
         lineno = parts[3];
         column = parts[4];
       } else {
-        parts = newFirefoxRe.exec(line) || firefoxRe.exec(line);
-        if (parts && parts.length >= 4) {
+        parts = firefoxRe.exec(line);
+        if (parts?.length >= 4) {
           symbolName = parts[1];
           file = parts[2];
           lineno = parts[3];
@@ -72,23 +57,19 @@ var LibraryStackTrace = {
         }
       }
 
-      var haveSourceMap = false;
-
-      if (flags & {{{ cDefs.EM_LOG_C_STACK }}}) {
-        var orig = emscripten_source_map.originalPositionFor({line: lineno, column: column});
-        haveSourceMap = orig?.source;
-        if (haveSourceMap) {
-          if (flags & {{{ cDefs.EM_LOG_NO_PATHS }}}) {
-            orig.source = orig.source.substring(orig.source.replace(/\\/g, "/").lastIndexOf('/')+1);
-          }
-          callstack += `    at ${symbolName} (${orig.source}:${orig.line}:${orig.column})\n`;
-        }
+      // Find the symbols in the callstack that corresponds to the functions that
+      // report callstack information, and remove everything up to these from the
+      // output.
+      if (symbolName == '_emscripten_log' || symbolName == '_emscripten_get_callstack') {
+        callstack = '';
+        continue;
       }
-      if ((flags & {{{ cDefs.EM_LOG_JS_STACK }}}) || !haveSourceMap) {
+
+      if ((flags & {{{ cDefs.EM_LOG_C_STACK | cDefs.EM_LOG_JS_STACK }}})) {
         if (flags & {{{ cDefs.EM_LOG_NO_PATHS }}}) {
           file = file.substring(file.replace(/\\/g, "/").lastIndexOf('/')+1);
         }
-        callstack += (haveSourceMap ? (`     = ${symbolName}`) : (`    at ${symbolName}`)) + ` (${file}:${lineno}:${column})\n`;
+        callstack += `    at ${symbolName} (${file}:${lineno}:${column})\n`;
       }
     }
     // Trim extra whitespace at the end of the output.

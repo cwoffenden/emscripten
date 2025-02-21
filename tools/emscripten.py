@@ -161,11 +161,15 @@ def update_settings_glue(wasm_file, metadata, base_metadata):
 
 
 def apply_static_code_hooks(forwarded_json, code):
+  code = shared.do_replace(code, '<<< ATPRERUNS >>>', str(forwarded_json['ATPRERUNS']))
   code = shared.do_replace(code, '<<< ATINITS >>>', str(forwarded_json['ATINITS']))
+  code = shared.do_replace(code, '<<< ATPOSTCTORS >>>', str(forwarded_json['ATPOSTCTORS']))
   if settings.HAS_MAIN:
     code = shared.do_replace(code, '<<< ATMAINS >>>', str(forwarded_json['ATMAINS']))
-  if settings.EXIT_RUNTIME and (not settings.MINIMAL_RUNTIME or settings.HAS_MAIN):
-    code = shared.do_replace(code, '<<< ATEXITS >>>', str(forwarded_json['ATEXITS']))
+  if not settings.MINIMAL_RUNTIME or settings.HAS_MAIN:
+    code = shared.do_replace(code, '<<< ATPOSTRUNS >>>', str(forwarded_json['ATPOSTRUNS']))
+    if settings.EXIT_RUNTIME:
+      code = shared.do_replace(code, '<<< ATEXITS >>>', str(forwarded_json['ATEXITS']))
   return code
 
 
@@ -178,19 +182,15 @@ def compile_javascript(symbols_only=False):
     stderr_file = open(stderr_file, 'w')
 
   # Save settings to a file to work around v8 issue 1579
-  with shared.get_temp_files().get_file('.json') as settings_file:
-    with open(settings_file, 'w') as s:
-      json.dump(settings.external_dict(), s, sort_keys=True, indent=2)
+  settings_json = json.dumps(settings.external_dict(), sort_keys=True, indent=2)
+  building.write_intermediate(settings_json, 'settings.json')
 
-    # Call js compiler
-    env = os.environ.copy()
-    env['EMCC_BUILD_DIR'] = os.getcwd()
-    args = [settings_file]
-    if symbols_only:
-      args += ['--symbols-only']
-    out = shared.run_js_tool(path_from_root('src/compiler.mjs'),
-                             args, stdout=subprocess.PIPE, stderr=stderr_file,
-                             cwd=path_from_root('src'), env=env, encoding='utf-8')
+  # Call js compiler. Passing `-` here mean read the settings from stdin.
+  args = ['-']
+  if symbols_only:
+    args += ['--symbols-only']
+  out = shared.run_js_tool(path_from_root('tools/compiler.mjs'),
+                           args, input=settings_json, stdout=subprocess.PIPE, stderr=stderr_file)
   if symbols_only:
     glue = None
     forwarded_data = out
@@ -582,6 +582,9 @@ def finalize_wasm(infile, outfile, js_syms):
   # These are any exports that were not requested on the command line and are
   # not known auto-generated system functions.
   unexpected_exports = [e for e in metadata.all_exports if treat_as_user_export(e)]
+  for n in unexpected_exports:
+    if not n.isidentifier():
+      exit_with_error(f'invalid export name: {n}')
   unexpected_exports = [asmjs_mangle(e) for e in unexpected_exports]
   unexpected_exports = [e for e in unexpected_exports if e not in expected_exports]
 
@@ -1066,6 +1069,7 @@ def create_pointer_conversion_wrappers(metadata):
     '_wasmfs_get_cwd': 'p_',
     '_wasmfs_identify': '_p',
     '_wasmfs_read_file': 'pp',
+    '_wasmfs_node_record_dirent': '_pp_',
     '__dl_seterr': '_pp',
     '_emscripten_run_on_main_thread_js': '__p_p_',
     '_emscripten_proxy_execute_task_queue': '_p',

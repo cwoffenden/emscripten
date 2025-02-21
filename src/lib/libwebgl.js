@@ -348,6 +348,13 @@ for (/**@suppress{duplicate}*/var i = 0; i <= {{{ GL_POOL_TEMP_BUFFERS_SIZE }}};
       for (var i = table.length; i < ret; i++) {
         table[i] = null;
       }
+#if FULL_ES2
+      // Skip over any non-null elements that might have been created by
+      // glBindBuffer.
+      while (table[ret]) {
+        ret = GL.counter++;
+      }
+#endif
       return ret;
     },
 
@@ -780,12 +787,7 @@ for (/**@suppress{duplicate}*/var i = 0; i <= {{{ GL_POOL_TEMP_BUFFERS_SIZE }}};
 #endif
         :
 #endif
-        (canvas.getContext("webgl", webGLContextAttributes)
-          // https://caniuse.com/#feat=webgl
-#if MIN_FIREFOX_VERSION <= 23 || MIN_CHROME_VERSION <= 32 || MIN_SAFARI_VERSION <= 70101
-          || canvas.getContext("experimental-webgl", webGLContextAttributes)
-#endif
-          );
+        canvas.getContext("webgl", webGLContextAttributes);
 #endif // MAX_WEBGL_VERSION >= 2
 
 #if GL_PREINITIALIZED_CONTEXT
@@ -1184,7 +1186,7 @@ for (/**@suppress{duplicate}*/var i = 0; i <= {{{ GL_POOL_TEMP_BUFFERS_SIZE }}};
       }
       // Make sure the canvas object no longer refers to the context object so
       // there are no GC surprises.
-      if (GL.contexts[contextHandle] && GL.contexts[contextHandle].GLctx.canvas) {
+      if (GL.contexts[contextHandle]?.GLctx.canvas) {
         GL.contexts[contextHandle].GLctx.canvas.GLctxObject = undefined;
       }
 #if PTHREADS
@@ -2971,6 +2973,16 @@ for (/**@suppress{duplicate}*/var i = 0; i <= {{{ GL_POOL_TEMP_BUFFERS_SIZE }}};
   },
 
   glBindBuffer: (target, buffer) => {
+#if FULL_ES2
+    // Calling glBindBuffer with an unknown buffer will implicitly create a
+    // new one.  Here we bypass `GL.counter` and directly using the ID passed
+    // in.
+    if (buffer && !GL.buffers[buffer]) {
+      var b = GLctx.createBuffer();
+      b.name = buffer;
+      GL.buffers[buffer] = b;
+    }
+#endif
 #if GL_ASSERTIONS
     GL.validateGLObjectID(GL.buffers, buffer, 'glBindBuffer', 'buffer');
 #endif
@@ -4323,7 +4335,7 @@ function createGLPassthroughFunctions(lib, funcs) {
         cName = name.replace('[', '').replace(']', '');
         name = cName.slice(0, -1);
       }
-      cName = 'gl' + cName[0].toUpperCase() + cName.substr(1);
+      cName = 'gl' + cName[0].toUpperCase() + cName.slice(1);
       assert(!(cName in lib), "Cannot reimplement the existing function " + cName);
       lib[cName] = eval(stub.replace('NAME', name));
       assert(lib[cName + '__sig'] || LibraryManager.library[cName + '__sig'], 'missing sig for ' + cName);

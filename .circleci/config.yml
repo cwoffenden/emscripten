@@ -306,7 +306,6 @@ commands:
       - run:
           name: run tests (<< parameters.title >>)
           environment:
-            EMTEST_LACKS_SOUND_HARDWARE: "1"
             EMTEST_DETECT_TEMPFILE_LEAKS: "0"
             # --no-sandbox because we are running as root and chrome requires
             # this flag for now: https://crbug.com/638180
@@ -314,8 +313,11 @@ commands:
             CHROME_FLAGS_HEADLESS: "--headless=new --remote-debugging-port=1234"
             CHROME_FLAGS_WASM: "--enable-experimental-webassembly-features --js-flags=\"--experimental-wasm-stack-switching --experimental-wasm-type-reflection\""
             CHROME_FLAGS_NOCACHE: "--disk-cache-dir=/dev/null --disk-cache-size=1 --media-cache-size=1 --disable-application-cache --incognito"
+            # The runners lack sound hardware so fallback to a dummy device (and
+            # bypass the user gesture so audio tests work without interaction)
+            CHROME_FLAGS_AUDIO: " --use-fake-device-for-media-stream --autoplay-policy=no-user-gesture-required"
           command: |
-            export EMTEST_BROWSER="/usr/bin/google-chrome $CHROME_FLAGS_BASE $CHROME_FLAGS_HEADLESS $CHROME_FLAGS_WASM $CHROME_FLAGS_NOCACHE"
+            export EMTEST_BROWSER="/usr/bin/google-chrome $CHROME_FLAGS_BASE $CHROME_FLAGS_HEADLESS $CHROME_FLAGS_WASM $CHROME_FLAGS_NOCACHE $CHROME_FLAGS_AUDIO"
             # There are tests in the browser test suite that using libraries
             # that are not included by "./embuilder build ALL".  For example the
             # PIC version of libSDL which is used by test_sdl2_misc_main_module
@@ -369,6 +371,7 @@ commands:
             #       support in headless mode) resolves
             EMTEST_LACKS_GRAPHICS_HARDWARE: "1"
             EMTEST_LACKS_WEBGPU: "1"
+            # TODO: replicate with FF the same as CHROME_FLAGS_AUDIO
             EMTEST_LACKS_SOUND_HARDWARE: "1"
             # OffscreenCanvas support is not yet done in Firefox.
             EMTEST_LACKS_OFFSCREEN_CANVAS: "1"
@@ -526,6 +529,7 @@ jobs:
             asan.test_externref_emjs_dynlink
             asan.test_asyncify_longjmp
             asan.test_pthread_run_on_main_thread
+            asan.test_minimal_runtime_global_initializer
             lsan.test_dylink_dso_needed
             lsan.test_stdio_locking
             lsan.test_dlfcn_basic
@@ -590,8 +594,6 @@ jobs:
             wasmfs.test_fs_write
             wasmfs.test_fs_writev
             wasmfs.test_fs_writev_rawfs
-            wasmfs.test_fs_writeFile
-            wasmfs.test_fs_writeFile_rawfs
             wasmfs.test_fs_readv
             wasmfs.test_fs_write
             wasmfs.test_fs_readv_rawfs
@@ -755,9 +757,9 @@ jobs:
       # version.
       # Keep this in sync with MINIMUM_NODE_VERSION in tools/shared.py.
       - install-node-version:
-          node_version: "18.0.0"
+          node_version: "18.3.0"
       - run:
-          name: configure compiler to use 18.0.0
+          name: configure compiler to use 18.3.0
           command: echo "NODE_JS = '$(which node)'" >> ~/emsdk/.emscripten
       - install-node-canary
       - run-tests:
@@ -769,8 +771,7 @@ jobs:
             other.test_node_unhandled_rejection
             core2.test_hello_world
             core0.test_pthread_join_and_asyncify
-            core0.test_async_ccall_promise_jspi
-            core0.test_async_ccall_promise_exit_runtime_jspi
+            core0.test_async_ccall_promise_jspi*
             core0.test_cubescript_jspi"
       # Run some basic tests with the minimum version of node that we currently
       # support in the generated code.
@@ -818,8 +819,7 @@ jobs:
             core2.test_fs_rename_on_existing_rawfs
             core2.test_fs_symlink_resolution_nodefs
             core2.test_fs_symlink_resolution_rawfs
-            core2.test_fs_writeFile_rawfs
-            core2.test_fs_writeFile_wasmfs_rawfs
+            core2.test_fs_writeFile*
             core2.test_fs_write_rawfs
             core2.test_fs_writev_rawfs
             core2.test_futimens_rawfs
@@ -984,7 +984,6 @@ jobs:
       EMTEST_SKIP_V8: "1"
       EMTEST_SKIP_EH: "1"
       EMTEST_SKIP_WASM64: "1"
-      EMTEST_SKIP_SIMD: "1"
       EMTEST_SKIP_SCONS: "1"
       EMTEST_SKIP_RUST: "1"
       EMTEST_SKIP_NODE_CANARY: "1"

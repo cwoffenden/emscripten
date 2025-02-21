@@ -47,20 +47,16 @@ export default [{
     'src/gl-matrix.js',
     'src/headless.js',
     'src/headlessCanvas.js',
-    'src/emscripten-source-map.min.js',
     'src/source_map_support.js',
     'src/Fetch.js',
     'src/settings.js',
     'src/settings_internal.js',
     'src/growableHeap.js',
     'src/emrun_prejs.js',
-    'src/arrayUtils.js',
     'src/deterministic.js',
-    'src/base64Decode.js',
     'src/proxyWorker.js',
     'src/proxyClient.js',
     'src/IDBStore.js',
-    'src/URIUtils.js',
     'tools/experimental',
   ],
 }, ...compat.extends('prettier'), js.configs.recommended, {
@@ -91,11 +87,8 @@ export default [{
   files: ['**/*.mjs'],
 
   rules: {
-    'no-undef': 'error',
     'no-unused-vars': ['error', {
-      vars: 'all',
-      args: 'none',
-      ignoreRestSiblings: false,
+      argsIgnorePattern: '^_',
       destructuredArrayIgnorePattern: '^_',
     }],
   },

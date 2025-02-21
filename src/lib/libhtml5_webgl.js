@@ -109,7 +109,10 @@ var LibraryHtml5WebGL = {
 #endif
 
     var canvas = findCanvasEventTarget(target);
-
+#if OFFSCREENCANVAS_SUPPORT
+    // If our canvas from findCanvasEventTarget is actually an offscreen canvas record, we should extract the inner canvas.
+    if (canvas?.canvas) { canvas = canvas.canvas; }
+#endif
 #if GL_DEBUG
     var targetStr = UTF8ToString(target);
 #endif
@@ -365,7 +368,7 @@ var LibraryHtml5WebGL = {
     var context = GL.getContext(contextHandle);
     var extString = UTF8ToString(extension);
 #if GL_EXTENSIONS_IN_PREFIXED_FORMAT
-    if (extString.startsWith('GL_')) extString = extString.substr(3); // Allow enabling extensions both with "GL_" prefix and without.
+    if (extString.startsWith('GL_')) extString = extString.slice(3); // Allow enabling extensions both with "GL_" prefix and without.
 #endif
 
 #if GL_SUPPORT_SIMPLE_ENABLE_EXTENSIONS

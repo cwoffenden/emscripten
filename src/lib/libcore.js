@@ -1341,7 +1341,7 @@ addToLibrary({
   // respective time origins.
   emscripten_get_now: () => performance.timeOrigin + {{{ getPerformanceNow() }}}(),
 #else
-#if MIN_FIREFOX_VERSION <= 14 || MIN_CHROME_VERSION <= 23 || MIN_SAFARI_VERSION <= 80400 || AUDIO_WORKLET // https://caniuse.com/#feat=high-resolution-time
+#if AUDIO_WORKLET // https://github.com/WebAudio/web-audio-api/issues/2413
   emscripten_get_now: `;
     // AudioWorkletGlobalScope does not have performance.now()
     // (https://github.com/WebAudio/web-audio-api/issues/2527), so if building
@@ -1371,7 +1371,7 @@ addToLibrary({
       return 1; // nanoseconds
     }
 #endif
-#if MIN_FIREFOX_VERSION <= 14 || MIN_CHROME_VERSION <= 23 || MIN_SAFARI_VERSION <= 80400 // https://caniuse.com/#feat=high-resolution-time
+#if AUDIO_WORKLET // https://github.com/WebAudio/web-audio-api/issues/2413
     if (typeof performance == 'object' && performance && typeof performance['now'] == 'function') {
       return 1000; // microseconds (1/1000 of a millisecond)
     }
@@ -1385,13 +1385,8 @@ addToLibrary({
   // Represents whether emscripten_get_now is guaranteed monotonic; the Date.now
   // implementation is not :(
   $nowIsMonotonic__internal: true,
-#if MIN_FIREFOX_VERSION <= 14 || MIN_CHROME_VERSION <= 23 || MIN_SAFARI_VERSION <= 80400 // https://caniuse.com/#feat=high-resolution-time
-  $nowIsMonotonic: `
-     ((typeof performance == 'object' && performance && typeof performance['now'] == 'function')
-#if ENVIRONMENT_MAY_BE_NODE
-      || ENVIRONMENT_IS_NODE
-#endif
-    );`,
+#if AUDIO_WORKLET // // https://github.com/WebAudio/web-audio-api/issues/2413
+  $nowIsMonotonic: `((typeof performance == 'object' && performance && typeof performance['now'] == 'function'));`,
 #else
   // Modern environment where performance.now() is supported
   $nowIsMonotonic: 1,
@@ -2295,6 +2290,68 @@ addToLibrary({
 #endif
 
   $noExitRuntime: "{{{ makeModuleReceiveExpr('noExitRuntime', !EXIT_RUNTIME) }}}",
+
+  // The following addOn<X> functions are for adding runtime callbacks at
+  // various executions points. Each addOn<X> function has a corresponding
+  // compiled time version named addAt<X> that will instead inline during
+  // compilation (see parseTools.mjs).
+  // Note: if there are both runtime and compile time code, the runtime
+  // callbacks will be invoked before the compile time code.
+
+  // See ATPRERUNS in parseTools.mjs for more information.
+  $onPreRuns: [],
+  $onPreRuns__internal: true,
+  $onPreRuns__deps: ['$callRuntimeCallbacks'],
+  $onPreRuns__postset: () => {
+    ATPRERUNS.unshift('callRuntimeCallbacks(onPreRuns);');
+  },
+  $addOnPreRun__deps: ['$onPreRuns'],
+  $addOnPreRun: (cb) => onPreRuns.unshift(cb),
+  // See ATINITS in parseTools.mjs for more information.
+  $onInits: [],
+  $onInits__internal: true,
+  $onInits__deps: ['$callRuntimeCallbacks'],
+  $onInits__postset: () => {
+    ATINITS.unshift('callRuntimeCallbacks(onInits);');
+  },
+  $addOnInit__deps: ['$onInits'],
+  $addOnInit: (cb) => onInits.unshift(cb),
+  // See ATPOSTCTORS in parseTools.mjs for more information.
+  $onPostCtors: [],
+  $onPostCtors__internal: true,
+  $onPostCtors__deps: ['$callRuntimeCallbacks'],
+  $onPostCtors__postset: () =>  {
+    ATPOSTCTORS.unshift('callRuntimeCallbacks(onPostCtors);');
+  },
+  $addOnPostCtor__deps: ['$onPostCtors'],
+  $addOnPostCtor: (cb) => onPostCtors.unshift(cb),
+  // See ATMAINS in parseTools.mjs for more information.
+  $onMains: [],
+  $onMains__internal: true,
+  $onMains__deps: ['$callRuntimeCallbacks'],
+  $onMains__postset: () => {
+    ATMAINS.unshift('callRuntimeCallbacks(onMains);');
+  },
+  $addOnPreMain__deps: ['$onMains'],
+  $addOnPreMain: (cb) => onMains.unshift(cb),
+  // See ATEXITS in parseTools.mjs for more information.
+  $onExits: [],
+  $onExits__internal: true,
+  $onExits__deps: ['$callRuntimeCallbacks'],
+  $onExits__postset: () => {
+    ATEXITS.unshift('callRuntimeCallbacks(onExits);');
+  },
+  $addOnExit__deps: ['$onExits'],
+  $addOnExit: (cb) => onExits.unshift(cb),
+  // See ATPOSTRUNS in parseTools.mjs for more information.
+  $onPostRuns: [],
+  $onPostRuns__internal: true,
+  $onPostRuns__deps: ['$callRuntimeCallbacks'],
+  $onPostRuns__postset: () => {
+    ATPOSTRUNS.unshift('callRuntimeCallbacks(onPostRuns);');
+  },
+  $addOnPostRun__deps: ['$onPostRuns'],
+  $addOnPostRun: (cb) => onPostRuns.unshift(cb),
 
   // We used to define these globals unconditionally in support code.
   // Instead, we now define them here so folks can pull it in explicitly, on

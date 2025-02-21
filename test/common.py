@@ -33,11 +33,12 @@ import queue
 
 import clang_native
 import jsrun
+import line_endings
 from tools.shared import EMCC, EMXX, DEBUG, EMCONFIGURE, EMCMAKE
 from tools.shared import get_canonical_temp_dir, path_from_root
 from tools.utils import MACOS, WINDOWS, read_file, read_binary, write_binary, exit_with_error
 from tools.settings import COMPILE_TIME_SETTINGS
-from tools import shared, feature_matrix, line_endings, building, config, utils
+from tools import shared, feature_matrix, building, config, utils
 
 logger = logging.getLogger('common')
 
@@ -98,6 +99,10 @@ requires_network = unittest.skipIf(os.getenv('EMTEST_SKIP_NETWORK_TESTS'), 'This
 def test_file(*path_components):
   """Construct a path relative to the emscripten "tests" directory."""
   return str(Path(TEST_ROOT, *path_components))
+
+
+def copytree(src, dest):
+  shutil.copytree(src, dest, dirs_exist_ok=True)
 
 
 # checks if browser testing is enabled
@@ -321,6 +326,17 @@ def requires_wasm2js(f):
   return decorated
 
 
+def requires_jspi(func):
+  assert callable(func)
+
+  @wraps(func)
+  def decorated(self, *args, **kwargs):
+    self.require_jspi()
+    return func(self, *args, **kwargs)
+
+  return decorated
+
+
 def node_pthreads(f):
   assert callable(f)
 
@@ -437,6 +453,9 @@ def with_all_fs(func):
       self.setup_noderawfs_test()
     elif fs == 'wasmfs':
       self.setup_wasmfs_test()
+    elif fs == 'wasmfs_rawfs':
+      self.setup_wasmfs_test()
+      self.setup_noderawfs_test()
     else:
       self.emcc_args += ['-DMEMFS']
       assert fs is None
@@ -447,7 +466,8 @@ def with_all_fs(func):
   parameterize(metafunc, {'': (None,),
                           'nodefs': ('nodefs',),
                           'rawfs': ('rawfs',),
-                          'wasmfs': ('wasmfs',)})
+                          'wasmfs': ('wasmfs',),
+                          'wasmfs_rawfs': ('wasmfs_rawfs',)})
   return metafunc
 
 
@@ -504,6 +524,9 @@ def also_with_minimal_runtime(f):
     assert self.get_setting('MINIMAL_RUNTIME') is None
     if with_minimal_runtime:
       self.set_setting('MINIMAL_RUNTIME', 1)
+      # This extra helper code is needed to cleanly handle calls to exit() which throw
+      # an ExitCode exception.
+      self.emcc_args += ['--pre-js', test_file('minimal_runtime_exit_handling.js')]
     f(self, *args, **kwargs)
 
   parameterize(metafunc, {'': (False,),
@@ -625,6 +648,38 @@ def also_with_standalone_wasm(impure=False):
   return decorated
 
 
+def also_with_asan(f):
+  assert callable(f)
+
+  @wraps(f)
+  def metafunc(self, asan, *args, **kwargs):
+    if asan:
+      if self.is_wasm64():
+        self.skipTest('TODO: ASAN in memory64')
+      if self.is_2gb() or self.is_4gb():
+        self.skipTest('asan doesnt support GLOBAL_BASE')
+      self.emcc_args.append('-fsanitize=address')
+    f(self, *args, **kwargs)
+
+  parameterize(metafunc, {'': (False,),
+                          'asan': (True,)})
+  return metafunc
+
+
+def also_with_modularize(f):
+  assert callable(f)
+
+  @wraps(f)
+  def metafunc(self, modularize, *args, **kwargs):
+    if modularize:
+      self.emcc_args += ['--extern-post-js', test_file('modularize_post_js.js'), '-sMODULARIZE']
+    f(self, *args, **kwargs)
+
+  parameterize(metafunc, {'': (False,),
+                          'modularize': (True,)})
+  return metafunc
+
+
 # Tests exception handling and setjmp/longjmp handling. This tests three
 # combinations:
 # - Emscripten EH + Emscripten SjLj
@@ -641,9 +696,6 @@ def with_all_eh_sjlj(f):
       # Wasm EH is currently supported only in wasm backend and V8
       if self.is_wasm2js():
         self.skipTest('wasm2js does not support wasm EH/SjLj')
-      # FIXME Temporarily disabled. Enable this later when the bug is fixed.
-      if '-fsanitize=address' in self.emcc_args:
-        self.skipTest('Wasm EH does not work with asan yet')
       self.emcc_args.append('-fwasm-exceptions')
       self.set_setting('SUPPORT_LONGJMP', 'wasm')
       if mode == 'wasm':
@@ -677,9 +729,6 @@ def with_all_sjlj(f):
     if mode in {'wasm', 'wasm_legacy'}:
       if self.is_wasm2js():
         self.skipTest('wasm2js does not support wasm SjLj')
-      # FIXME Temporarily disabled. Enable this later when the bug is fixed.
-      if '-fsanitize=address' in self.emcc_args:
-        self.skipTest('Wasm EH does not work with asan yet')
       self.set_setting('SUPPORT_LONGJMP', 'wasm')
       if mode == 'wasm':
         self.require_wasm_eh()
@@ -792,6 +841,7 @@ def parameterize(func, parameters):
   test functions.
   """
   prev = getattr(func, '_parameterize', None)
+  assert not any(p.startswith('_') for p in parameters)
   if prev:
     # If we're parameterizing 2nd time, construct a cartesian product for various combinations.
     func._parameterize = {
@@ -1034,6 +1084,9 @@ class RunnerCore(unittest.TestCase, metaclass=RunnerMeta):
         self.node_args.append('--experimental-wasm-exnref')
         return
 
+    if self.is_browser_test():
+      return
+
     if config.V8_ENGINE and config.V8_ENGINE in self.js_engines:
       self.emcc_args.append('-sENVIRONMENT=shell')
       self.js_engines = [config.V8_ENGINE]
@@ -1118,8 +1171,7 @@ class RunnerCore(unittest.TestCase, metaclass=RunnerMeta):
   @classmethod
   def setUpClass(cls):
     super().setUpClass()
-    print('(checking sanity from test runner)') # do this after we set env stuff
-    shared.check_sanity(force=True)
+    shared.check_sanity(force=True, quiet=True)
 
   def setUp(self):
     super().setUp()
@@ -1333,21 +1385,22 @@ class RunnerCore(unittest.TestCase, metaclass=RunnerMeta):
       self.fail('es-check failed to verify ES5 output compliance')
 
   # Build JavaScript code from source code
-  def build(self, filename, libraries=None, includes=None, force_c=False, js_outfile=True, emcc_args=None, output_basename=None):
+  def build(self, filename, libraries=None, includes=None, force_c=False, emcc_args=None, output_basename=None, output_suffix=None):
     if not os.path.exists(filename):
       filename = test_file(filename)
-    suffix = '.js' if js_outfile else '.wasm'
     compiler = [compiler_for(filename, force_c)]
 
     if force_c:
       assert shared.suffix(filename) != '.c', 'force_c is not needed for source files ending in .c'
       compiler.append('-xc')
 
+    if not output_suffix:
+      output_suffix = '.mjs' if emcc_args and '-sEXPORT_ES6' in emcc_args else '.js'
+
     if output_basename:
-      output = output_basename + suffix
+      output = output_basename + output_suffix
     else:
-      basename = os.path.basename(filename)
-      output = shared.unsuffixed(basename) + suffix
+      output = shared.unsuffixed_basename(filename) + output_suffix
     cmd = compiler + [filename, '-o', output] + self.get_emcc_args(main_file=True)
     if emcc_args:
       cmd += emcc_args
@@ -2018,16 +2071,24 @@ def harness_server_func(in_queue, out_queue, port):
     # Request header handler for default do_GET() path in
     # SimpleHTTPRequestHandler.do_GET(self) below.
     def send_head(self):
-      if self.path.endswith('.js'):
+      if self.headers.get('Range'):
         path = self.translate_path(self.path)
         try:
+          fsize = os.path.getsize(path)
           f = open(path, 'rb')
         except IOError:
-          self.send_error(404, "File not found: " + path)
+          self.send_error(404, f'File not found {path}')
           return None
-        self.send_response(200)
-        self.send_header('Content-type', 'application/javascript')
-        self.send_header('Connection', 'close')
+        self.send_response(206)
+        ctype = self.guess_type(path)
+        self.send_header('Content-Type', ctype)
+        pieces = self.headers.get('Range').split('=')[1].split('-')
+        start = int(pieces[0]) if pieces[0] != '' else 0
+        end = int(pieces[1]) if pieces[1] != '' else fsize - 1
+        end = min(fsize - 1, end)
+        length = end - start + 1
+        self.send_header('Content-Range', f'bytes {start}-{end}/{fsize}')
+        self.send_header('Content-Length', str(length))
         self.end_headers()
         return f
       else:
@@ -2035,6 +2096,7 @@ def harness_server_func(in_queue, out_queue, port):
 
     # Add COOP, COEP, CORP, and no-caching headers
     def end_headers(self):
+      self.send_header('Accept-Ranges', 'bytes')
       self.send_header('Access-Control-Allow-Origin', '*')
       self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
       self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
@@ -2129,7 +2191,23 @@ def harness_server_func(in_queue, out_queue, port):
         # Use SimpleHTTPServer default file serving operation for GET.
         if DEBUG:
           print('[simple HTTP serving:', unquote_plus(self.path), ']')
-        SimpleHTTPRequestHandler.do_GET(self)
+        if self.headers.get('Range'):
+          self.send_response(206)
+          path = self.translate_path(self.path)
+          data = read_binary(path)
+          ctype = self.guess_type(path)
+          self.send_header('Content-type', ctype)
+          pieces = self.headers.get('Range').split('=')[1].split('-')
+          start = int(pieces[0]) if pieces[0] != '' else 0
+          end = int(pieces[1]) if pieces[1] != '' else len(data) - 1
+          end = min(len(data) - 1, end)
+          length = end - start + 1
+          self.send_header('Content-Length', str(length))
+          self.send_header('Content-Range', f'bytes {start}-{end}/{len(data)}')
+          self.end_headers()
+          self.wfile.write(data[start:end + 1])
+        else:
+          SimpleHTTPRequestHandler.do_GET(self)
 
     def log_request(code=0, size=0):
       # don't log; too noisy

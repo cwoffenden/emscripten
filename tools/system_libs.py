@@ -775,10 +775,12 @@ class Exceptions(IntEnum):
   - EMSCRIPTEN: Emscripten provides exception handling capability using JS
     emulation. This causes code size increase and performance degradation.
   - WASM_LEGACY: Wasm native exception handling support (legacy)
+  - WASM: Wasm native exception handling support
   """
   NONE = auto()
   EMSCRIPTEN = auto()
   WASM_LEGACY = auto()
+  WASM = auto()
 
 
 class ExceptionLibrary(Library):
@@ -793,7 +795,9 @@ class ExceptionLibrary(Library):
     elif self.eh_mode == Exceptions.EMSCRIPTEN:
       cflags += ['-sDISABLE_EXCEPTION_CATCHING=0']
     elif self.eh_mode == Exceptions.WASM_LEGACY:
-      cflags += ['-fwasm-exceptions']
+      cflags += ['-fwasm-exceptions', '-sWASM_LEGACY_EXCEPTIONS']
+    elif self.eh_mode == Exceptions.WASM:
+      cflags += ['-fwasm-exceptions', '-sWASM_LEGACY_EXCEPTIONS=0']
 
     return cflags
 
@@ -805,6 +809,8 @@ class ExceptionLibrary(Library):
       name += '-noexcept'
     elif self.eh_mode == Exceptions.WASM_LEGACY:
       name += '-legacyexcept'
+    elif self.eh_mode == Exceptions.WASM:
+      name += '-wasmexcept'
     return name
 
   @classmethod
@@ -812,12 +818,16 @@ class ExceptionLibrary(Library):
     combos = super().variations()
     return ([dict(eh_mode=Exceptions.NONE, **combo) for combo in combos] +
             [dict(eh_mode=Exceptions.EMSCRIPTEN, **combo) for combo in combos] +
-            [dict(eh_mode=Exceptions.WASM_LEGACY, **combo) for combo in combos])
+            [dict(eh_mode=Exceptions.WASM_LEGACY, **combo) for combo in combos] +
+            [dict(eh_mode=Exceptions.WASM, **combo) for combo in combos])
 
   @classmethod
   def get_default_variation(cls, **kwargs):
     if settings.WASM_EXCEPTIONS:
-      eh_mode = Exceptions.WASM_LEGACY
+      if settings.WASM_LEGACY_EXCEPTIONS:
+        eh_mode = Exceptions.WASM_LEGACY
+      else:
+        eh_mode = Exceptions.WASM
     elif settings.DISABLE_EXCEPTION_CATCHING == 1:
       eh_mode = Exceptions.NONE
     else:
@@ -838,6 +848,12 @@ class SjLjLibrary(Library):
                  '-sDISABLE_EXCEPTION_THROWING=0']
     elif self.eh_mode == Exceptions.WASM_LEGACY:
       cflags += ['-sSUPPORT_LONGJMP=wasm',
+                 '-sWASM_LEGACY_EXCEPTIONS',
+                 '-sDISABLE_EXCEPTION_THROWING',
+                 '-D__WASM_SJLJ__']
+    elif self.eh_mode == Exceptions.WASM:
+      cflags += ['-sSUPPORT_LONGJMP=wasm',
+                 '-sWASM_LEGACY_EXCEPTIONS=0',
                  '-sDISABLE_EXCEPTION_THROWING',
                  '-D__WASM_SJLJ__']
     return cflags
@@ -848,18 +864,24 @@ class SjLjLibrary(Library):
     # suffixes. Change the default to wasm exception later.
     if self.eh_mode == Exceptions.WASM_LEGACY:
       name += '-legacysjlj'
+    elif self.eh_mode == Exceptions.WASM:
+      name += '-wasmsjlj'
     return name
 
   @classmethod
   def variations(cls):
     combos = super().variations()
     return ([dict(eh_mode=Exceptions.EMSCRIPTEN, **combo) for combo in combos] +
-            [dict(eh_mode=Exceptions.WASM_LEGACY, **combo) for combo in combos])
+            [dict(eh_mode=Exceptions.WASM_LEGACY, **combo) for combo in combos] +
+            [dict(eh_mode=Exceptions.WASM, **combo) for combo in combos])
 
   @classmethod
   def get_default_variation(cls, **kwargs):
     if settings.SUPPORT_LONGJMP == 'wasm':
-      eh_mode = Exceptions.WASM_LEGACY
+      if settings.WASM_LEGACY_EXCEPTIONS:
+        eh_mode = Exceptions.WASM_LEGACY
+      else:
+        eh_mode = Exceptions.WASM
     else:
       eh_mode = Exceptions.EMSCRIPTEN
     return super().get_default_variation(eh_mode=eh_mode, **kwargs)
@@ -1600,7 +1622,7 @@ class libcxxabi(ExceptionLibrary, MTLibrary, DebugLibrary):
       filenames += ['cxa_noexception.cpp']
     elif self.eh_mode == Exceptions.EMSCRIPTEN:
       filenames += ['cxa_exception_emscripten.cpp']
-    elif self.eh_mode == Exceptions.WASM_LEGACY:
+    elif self.eh_mode in (Exceptions.WASM_LEGACY, Exceptions.WASM):
       filenames += [
         'cxa_exception_storage.cpp',
         'cxa_exception.cpp',
@@ -1654,7 +1676,7 @@ class libcxx(ExceptionLibrary, MTLibrary):
 
   def get_cflags(self):
     cflags = super().get_cflags()
-    if self.eh_mode == Exceptions.WASM_LEGACY:
+    if self.eh_mode in (Exceptions.WASM_LEGACY, Exceptions.WASM):
       cflags.append('-D__WASM_EXCEPTIONS__')
     return cflags
 
@@ -1677,7 +1699,7 @@ class libunwind(ExceptionLibrary, MTLibrary):
     super().__init__(**kwargs)
 
   def can_use(self):
-    return super().can_use() and self.eh_mode == Exceptions.WASM_LEGACY
+    return super().can_use() and self.eh_mode in (Exceptions.WASM_LEGACY, Exceptions.WASM)
 
   def get_cflags(self):
     cflags = super().get_cflags()
@@ -1688,7 +1710,7 @@ class libunwind(ExceptionLibrary, MTLibrary):
       cflags.append('-D_LIBUNWIND_HAS_NO_EXCEPTIONS')
     elif self.eh_mode == Exceptions.EMSCRIPTEN:
       cflags.append('-D__EMSCRIPTEN_EXCEPTIONS__')
-    elif self.eh_mode == Exceptions.WASM_LEGACY:
+    elif self.eh_mode in (Exceptions.WASM_LEGACY, Exceptions.WASM):
       cflags.append('-D__WASM_EXCEPTIONS__')
     return cflags
 
@@ -2234,10 +2256,10 @@ class libstubs(DebugLibrary):
   src_files = ['emscripten_syscall_stubs.c', 'emscripten_libc_stubs.c']
 
 
-def get_libs_to_link(args):
+def get_libs_to_link(options):
   libs_to_link = []
 
-  if '-nostdlib' in args:
+  if options.nostdlib:
     return libs_to_link
 
   already_included = set()
@@ -2277,7 +2299,7 @@ def get_libs_to_link(args):
     need_whole_archive = lib.name in force_include and lib.get_ext() == '.a'
     libs_to_link.append((lib.get_link_flag(), whole_archive or need_whole_archive))
 
-  if '-nostartfiles' not in args:
+  if not options.nostartfiles:
     if settings.SHARED_MEMORY:
       add_library('crtbegin')
 
@@ -2302,7 +2324,7 @@ def get_libs_to_link(args):
         shared.exit_with_error('invalid forced library: %s', forced)
       add_library(forced)
 
-  if '-nodefaultlibs' in args:
+  if options.nodefaultlibs:
     add_forced_libs()
     return libs_to_link
 
@@ -2355,7 +2377,7 @@ def get_libs_to_link(args):
     add_library('libstandalonewasm')
   if settings.ALLOW_UNIMPLEMENTED_SYSCALLS:
     add_library('libstubs')
-  if '-nolibc' not in args:
+  if not options.nolibc:
     if not settings.EXIT_RUNTIME:
       add_library('libnoexit')
     add_library('libc')
@@ -2407,9 +2429,9 @@ def get_libs_to_link(args):
   return libs_to_link
 
 
-def calculate(args):
+def calculate(options):
 
-  libs_to_link = get_libs_to_link(args)
+  libs_to_link = get_libs_to_link(options)
 
   # When LINKABLE is set the entire link command line is wrapped in --whole-archive by
   # building.link_ldd.  And since --whole-archive/--no-whole-archive processing does not nest we
@@ -2435,17 +2457,8 @@ def calculate(args):
   return ret
 
 
-# Once we require python 3.8 we can use shutil.copytree with
-# dirs_exist_ok=True and remove this function.
 def copytree_exist_ok(src, dst):
-  os.makedirs(dst, exist_ok=True)
-  for entry in os.scandir(src):
-    srcname = os.path.join(src, entry.name)
-    dstname = os.path.join(dst, entry.name)
-    if entry.is_dir():
-      copytree_exist_ok(srcname, dstname)
-    else:
-      shared.safe_copy(srcname, dstname)
+  shutil.copytree(src, dst, dirs_exist_ok=True)
 
 
 def install_system_headers(stamp):
